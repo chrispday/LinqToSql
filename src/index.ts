@@ -1,5 +1,5 @@
-import parseFunction = require("parse-function");
-import tedious = require("tedious");
+import * as acorn from "acorn";
+import * as tedious from "tedious";
 
 export module LinqToSql {
 
@@ -30,13 +30,19 @@ export module LinqToSql {
     }
 
     export enum StatementType {
+        From,
         Where
     }
 
     export interface IDbSetStatement {
         statementType: StatementType,
-        statement: string,
-        parsed: any
+        statement?: string,
+        parsed?: any
+    }
+
+    export interface ISqlServerStatement {
+        selectColumns?: string,
+        fromTables?: string,
     }
 
     export interface ISqlGenerator {
@@ -44,10 +50,23 @@ export module LinqToSql {
     }
 
     export class SqlServerGenerator implements ISqlGenerator {
+        SelectGenerator<T>(dbSet: DbSet<T>, dbSetStatement: IDbSetStatement): ISqlServerStatement {
+            return { selectColumns:  dbSet.dbSetConfiguration.ColumnConfigurations.map(c => `[${c.Name}]`).join(",") }; 
+        }
+
+        WhereGenerator<T>(dbSet: DbSet<T>, dbSetStatement: IDbSetStatement): ISqlServerStatement {
+            return { fromTables: `[${dbSet.dbSetConfiguration.Database}].[${dbSet.dbSetConfiguration.Schema}].[${dbSet.dbSetConfiguration.Name}]`};
+        }
+
         async Execute<T>(dbSet: DbSet<T>): Promise<Array<T>> {
-            const columns = dbSet.dbSetConfiguration.ColumnConfigurations.map(c => `[${c.Name}]`).join(",");
-            const table = `[${dbSet.dbSetConfiguration.Database}].[${dbSet.dbSetConfiguration.Schema}].[${dbSet.dbSetConfiguration.Name}]`;
-            const sql = `select ${columns} from ${table}`;
+            let x = {};
+            x[StatementType.Where] = this.WhereGenerator;
+            x[StatementType.From] = this.SelectGenerator;
+
+            const statement = dbSet.statements.map(s => x[s.statementType](dbSet, s)) as ISqlServerStatement[];
+
+            let sql = `select ${statement.map(s => s.selectColumns || "").filter(s => 0 !== s.length).join(",")}
+from ${statement.map(s => s.fromTables || "").filter(s => 0 !== s.length).join("\r\n")}`;
             console.log(sql);
             const conn = new tedious.Connection({ server: "localhost", userName: "testuser", password: "testpassword", options: { useColumnNames: true, rowCollectionOnRequestCompletion: true } });
             let connPromise = new Promise((resolve, reject) => {
@@ -76,7 +95,9 @@ export module LinqToSql {
     }
 
     export class DbSet<T> implements IQueryable<T> {
-        public statements: IDbSetStatement[] = [];
+        public statements: IDbSetStatement[] = [ {
+            statementType: StatementType.From,
+        } ];
 
         constructor(public dbSetConfiguration: IDbSetConfiguration, public sqlGenerator: ISqlGenerator) {
         }
@@ -85,7 +106,7 @@ export module LinqToSql {
             this.statements = this.statements.concat([{
                 statementType: StatementType.Where,
                 statement: '' + f,
-                parsed: parseFunction(f)
+                parsed: acorn.parse('' + f)
             }]);
             return this;
         }
@@ -98,8 +119,6 @@ export module LinqToSql {
             return this.statements.map(s => "" + s.statementType + "->" + s.statement + "->" + JSON.stringify(s.parsed)).join("\\r\\n");
         }
     }
-
-
 }
 
 class Table1 {
@@ -129,5 +148,7 @@ class LinqToSqlContext {
     }
 }
 var context = new LinqToSqlContext();
-var rows = context.Table1().Select(t => t).ToArray();
-rows.then(rs => console.log("rows " + JSON.stringify(rs)));
+var query = context.Table1().Select(t => t);
+console.log(query.toString());
+var rows = query.ToArray();
+//rows.then(rs => console.log("rows " + JSON.stringify(rs)));

@@ -21,17 +21,24 @@ export declare module LinqToSql {
         ColumnConfigurations: IDbColumnConfiguration[];
     }
     enum StatementType {
-        Where = 0,
+        From = 0,
+        Where = 1,
     }
     interface IDbSetStatement {
         statementType: StatementType;
-        statement: string;
-        parsed: any;
+        statement?: string;
+        parsed?: any;
+    }
+    interface ISqlServerStatement {
+        selectColumns?: string;
+        fromTables?: string;
     }
     interface ISqlGenerator {
         Execute<T>(dbSet: DbSet<T>): Promise<Array<T>>;
     }
     class SqlServerGenerator implements ISqlGenerator {
+        SelectGenerator<T>(dbSet: DbSet<T>, dbSetStatement: IDbSetStatement): ISqlServerStatement;
+        WhereGenerator<T>(dbSet: DbSet<T>, dbSetStatement: IDbSetStatement): ISqlServerStatement;
         Execute<T>(dbSet: DbSet<T>): Promise<Array<T>>;
     }
     class DbSet<T> implements IQueryable<T> {

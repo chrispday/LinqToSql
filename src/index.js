@@ -7,7 +7,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments)).next());
     });
 };
-const parseFunction = require("parse-function");
+const acorn = require("acorn");
 const tedious = require("tedious");
 var LinqToSql;
 (function (LinqToSql) {
@@ -18,15 +18,25 @@ var LinqToSql;
     })(LinqToSql.SqlType || (LinqToSql.SqlType = {}));
     var SqlType = LinqToSql.SqlType;
     (function (StatementType) {
-        StatementType[StatementType["Where"] = 0] = "Where";
+        StatementType[StatementType["From"] = 0] = "From";
+        StatementType[StatementType["Where"] = 1] = "Where";
     })(LinqToSql.StatementType || (LinqToSql.StatementType = {}));
     var StatementType = LinqToSql.StatementType;
     class SqlServerGenerator {
+        SelectGenerator(dbSet, dbSetStatement) {
+            return { selectColumns: dbSet.dbSetConfiguration.ColumnConfigurations.map(c => `[${c.Name}]`).join(",") };
+        }
+        WhereGenerator(dbSet, dbSetStatement) {
+            return { fromTables: `[${dbSet.dbSetConfiguration.Database}].[${dbSet.dbSetConfiguration.Schema}].[${dbSet.dbSetConfiguration.Name}]` };
+        }
         Execute(dbSet) {
             return __awaiter(this, void 0, void 0, function* () {
-                const columns = dbSet.dbSetConfiguration.ColumnConfigurations.map(c => `[${c.Name}]`).join(",");
-                const table = `[${dbSet.dbSetConfiguration.Database}].[${dbSet.dbSetConfiguration.Schema}].[${dbSet.dbSetConfiguration.Name}]`;
-                const sql = `select ${columns} from ${table}`;
+                let x = {};
+                x[StatementType.Where] = this.WhereGenerator;
+                x[StatementType.From] = this.SelectGenerator;
+                const statement = dbSet.statements.map(s => x[s.statementType](dbSet, s));
+                let sql = `select ${statement.map(s => s.selectColumns || "").filter(s => 0 !== s.length).join(",")}
+from ${statement.map(s => s.fromTables || "").filter(s => 0 !== s.length).join("\r\n")}`;
                 console.log(sql);
                 const conn = new tedious.Connection({ server: "localhost", userName: "testuser", password: "testpassword", options: { useColumnNames: true, rowCollectionOnRequestCompletion: true } });
                 let connPromise = new Promise((resolve, reject) => {
@@ -59,13 +69,15 @@ var LinqToSql;
         constructor(dbSetConfiguration, sqlGenerator) {
             this.dbSetConfiguration = dbSetConfiguration;
             this.sqlGenerator = sqlGenerator;
-            this.statements = [];
+            this.statements = [{
+                    statementType: StatementType.From,
+                }];
         }
         Select(f) {
             this.statements = this.statements.concat([{
                     statementType: StatementType.Where,
                     statement: '' + f,
-                    parsed: parseFunction(f)
+                    parsed: acorn.parse('' + f)
                 }]);
             return this;
         }
@@ -101,6 +113,8 @@ class LinqToSqlContext {
     }
 }
 var context = new LinqToSqlContext();
-var rows = context.Table1().Select(t => t).ToArray();
-rows.then(rs => console.log("rows " + JSON.stringify(rs)));
+var query = context.Table1().Select(t => t);
+console.log(query.toString());
+var rows = query.ToArray();
+//rows.then(rs => console.log("rows " + JSON.stringify(rs))); 
 //# sourceMappingURL=index.js.map
